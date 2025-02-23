@@ -25,6 +25,7 @@ jobs:
 
       - name: Refresh Patreon Token
         run: |
+          echo "🔄 Requesting new Patreon Access Token..."
           REFRESH_RESPONSE=$(curl -s -X POST https://www.patreon.com/api/oauth2/token \
             -H "Content-Type: application/x-www-form-urlencoded" \
             -d "grant_type=refresh_token" \
@@ -58,19 +59,28 @@ jobs:
 
       - name: Get Banabyte's Patreon Supporters
         run: |
+          echo "🔄 Fetching Banabyte's Patreon Supporters..."
           SUPPORTERS=$(curl -s -X GET "https://www.patreon.com/api/oauth2/v2/campaigns/${CAMPAIGN_ID}/members" \
             -H "Authorization: Bearer $NEW_ACCESS_TOKEN")
 
-          echo "Patreon Supporters Response: $SUPPORTERS"
+          echo "🔍 Patreon Supporters Response:"
+          echo "$SUPPORTERS" | jq '.' || echo "❌ ERROR: Failed to parse response."
 
           if [[ -z "$SUPPORTERS" || "$SUPPORTERS" == "{}" || "$SUPPORTERS" == "[]" ]]; then
             echo "❌ ERROR: No supporters found or API call failed!" | tee error_message.txt
             exit 1
           fi
 
+          echo "✅ Supporters list retrieved. Saving to file..."
           mkdir -p docs
           echo "$SUPPORTERS" | jq '.' > docs/supporters.json
-          echo "✅ Banabyte's Supporters list updated."
+
+          if [[ -f "docs/supporters.json" ]]; then
+            echo "✅ File successfully created: docs/supporters.json"
+          else
+            echo "❌ ERROR: File not created!" | tee error_message.txt
+            exit 1
+          fi
 
       - name: Commit Changes
         run: |
