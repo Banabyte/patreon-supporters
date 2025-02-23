@@ -58,6 +58,7 @@ jobs:
             -H "Authorization: Bearer $NEW_ACCESS_TOKEN")
 
           # Save the JSON output to docs/supporters.json
+          mkdir -p docs
           echo "$SUPPORTERS" | jq '.' > docs/supporters.json
           echo "✅ Supporters list updated."
 
