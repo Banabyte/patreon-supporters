@@ -8,6 +8,7 @@ on:
 permissions:
   contents: write       # Allow actions to push changes
   actions: write        # Allow actions to update secrets
+  issues: write         # Allow actions to create issues
 
 jobs:
   update_patreon_supporters:
@@ -23,11 +24,10 @@ jobs:
 
           echo "Patreon Campaign Response: $CAMPAIGN_RESPONSE"
 
-          # Extract Campaign ID for Banabyte's Patreon
           CAMPAIGN_ID=$(echo "$CAMPAIGN_RESPONSE" | jq -r '.included[0].id')
 
           if [[ -z "$CAMPAIGN_ID" || "$CAMPAIGN_ID" == "null" ]]; then
-            echo "❌ ERROR: Could not retrieve Campaign ID!"
+            echo "❌ ERROR: Could not retrieve Campaign ID!" | tee error_message.txt
             exit 1
           fi
 
@@ -49,7 +49,7 @@ jobs:
           NEW_REFRESH_TOKEN=$(echo "$REFRESH_RESPONSE" | jq -r '.refresh_token')
 
           if [[ -z "$NEW_ACCESS_TOKEN" || "$NEW_ACCESS_TOKEN" == "null" ]]; then
-            echo "❌ ERROR: Could not retrieve new Access Token!"
+            echo "❌ ERROR: Could not retrieve new Access Token!" | tee error_message.txt
             exit 1
           fi
 
@@ -75,7 +75,7 @@ jobs:
           echo "Patreon Supporters Response: $SUPPORTERS"
 
           if [[ -z "$SUPPORTERS" || "$SUPPORTERS" == "{}" || "$SUPPORTERS" == "[]" ]]; then
-            echo "❌ ERROR: No supporters found or API call failed!"
+            echo "❌ ERROR: No supporters found or API call failed!" | tee error_message.txt
             exit 1
           fi
 
@@ -95,3 +95,18 @@ jobs:
           else
             echo "⚠️ No changes detected."
           fi
+
+      - name: Create GitHub Issue on Failure
+        if: failure()
+        run: |
+          ERROR_MSG=$(cat error_message.txt || echo "Unknown error occurred.")
+          echo "## ⚠️ Patreon Sync Failed" > issue_body.md
+          echo "" >> issue_body.md
+          echo "**Error Message:**" >> issue_body.md
+          echo "❌ $ERROR_MSG" >> issue_body.md
+          echo "" >> issue_body.md
+          echo "**Workflow Run:** [View Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> issue_body.md
+
+          gh issue create --title "⚠️ Patreon Sync Failed" --body-file issue_body.md --repo "${{ github.repository }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
