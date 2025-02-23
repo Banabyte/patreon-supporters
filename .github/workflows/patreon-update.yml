@@ -17,21 +17,10 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - name: Get Patreon Campaign ID (Banabyte)
+      - name: Set Banabyte’s Patreon Campaign ID
         run: |
-          CAMPAIGN_RESPONSE=$(curl -s -X GET "https://www.patreon.com/api/oauth2/v2/identity?include=memberships.campaign" \
-            -H "Authorization: Bearer ${{ secrets.PATREON_CREATOR_ACCESS_TOKEN }}")
-
-          echo "Patreon Campaign Response: $CAMPAIGN_RESPONSE"
-
-          CAMPAIGN_ID=$(echo "$CAMPAIGN_RESPONSE" | jq -r '.included[0].id')
-
-          if [[ -z "$CAMPAIGN_ID" || "$CAMPAIGN_ID" == "null" ]]; then
-            echo "❌ ERROR: Could not retrieve Campaign ID!" | tee error_message.txt
-            exit 1
-          fi
-
-          echo "✅ Found Patreon Campaign ID: $CAMPAIGN_ID"
+          CAMPAIGN_ID="13334223"
+          echo "✅ Using hardcoded Campaign ID: $CAMPAIGN_ID"
           echo "CAMPAIGN_ID=${CAMPAIGN_ID}" >> $GITHUB_ENV
 
       - name: Refresh Patreon Token
