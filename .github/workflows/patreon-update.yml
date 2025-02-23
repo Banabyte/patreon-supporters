@@ -1,0 +1,58 @@
+name: Patreon Supporters Sync
+
+on:
+  schedule:
+    - cron: '0 * * * *'  # Runs every hour
+  workflow_dispatch:    # Allows manual triggering
+
+permissions:
+  contents: write       # Allow actions to push changes
+
+jobs:
+  update_patreon_supporters:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Refresh Patreon Token
+        run: |
+          # Request a new access token and refresh token from Patreon
+          REFRESH_RESPONSE=$(curl -s -X POST https://www.patreon.com/api/oauth2/token \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=refresh_token" \
+            -d "refresh_token=${{ secrets.PATREON_CREATOR_REFRESH_TOKEN }}" \
+            -d "client_id=${{ secrets.PATREON_CLIENT_ID }}" \
+            -d "client_secret=${{ secrets.PATREON_CLIENT_SECRET }}")
+          
+          # Extract the new access token (refresh token is discarded)
+          NEW_ACCESS_TOKEN=$(echo "$REFRESH_RESPONSE" | jq -r '.access_token')
+
+          echo "NEW_ACCESS_TOKEN=${NEW_ACCESS_TOKEN}" >> $GITHUB_ENV
+
+      - name: Get Patreon Supporters
+        run: |
+          # Use the new access token to fetch the supporters list
+          SUPPORTERS=$(curl -s -X GET "https://www.patreon.com/api/oauth2/v2/campaigns/YOUR_CAMPAIGN_ID/members" \
+            -H "Authorization: Bearer $NEW_ACCESS_TOKEN")
+          
+          # Save the JSON output to docs/supporters.json
+          echo "$SUPPORTERS" | jq '.' > docs/supporters.json
+          echo "Supporters list updated."
+
+      - name: Commit Changes
+        run: |
+          # Configure Git to commit changes
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          
+          # Add the updated file
+          git add docs/supporters.json
+          
+          # Commit if there are any changes
+          if ! git diff --quiet; then
+            git commit -m "Updated Patreon supporters list"
+            git push
+          else
+            echo "No changes detected."
+          fi
