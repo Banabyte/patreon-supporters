@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write       # Allow actions to push changes
+  issues: write         # Allow actions to create issues
 
 jobs:
   update_patreon_supporters:
@@ -17,21 +18,24 @@ jobs:
 
       - name: Get Patreon Campaign ID
         run: |
-          # Fetch Campaign ID from Patreon
           CAMPAIGN_RESPONSE=$(curl -s -X GET "https://www.patreon.com/api/oauth2/v2/identity?include=memberships.campaign" \
             -H "Authorization: Bearer ${{ secrets.PATREON_CREATOR_ACCESS_TOKEN }}")
 
-          # Extract Campaign ID
+          echo "Patreon Campaign Response: $CAMPAIGN_RESPONSE"
+
           CAMPAIGN_ID=$(echo "$CAMPAIGN_RESPONSE" | jq -r '.included[0].id')
 
-          echo "Found Patreon Campaign ID: $CAMPAIGN_ID"
+          if [[ -z "$CAMPAIGN_ID" || "$CAMPAIGN_ID" == "null" ]]; then
+            echo "❌ ERROR: Could not retrieve Campaign ID!"
+            echo "Patreon API did not return a valid Campaign ID." > error_message.txt
+            exit 1
+          fi
 
-          # Save Campaign ID for next steps
+          echo "✅ Found Patreon Campaign ID: $CAMPAIGN_ID"
           echo "CAMPAIGN_ID=${CAMPAIGN_ID}" >> $GITHUB_ENV
 
       - name: Refresh Patreon Token
         run: |
-          # Request a new access token from Patreon
           REFRESH_RESPONSE=$(curl -s -X POST https://www.patreon.com/api/oauth2/token \
             -H "Content-Type: application/x-www-form-urlencoded" \
             -d "grant_type=refresh_token" \
@@ -39,42 +43,60 @@ jobs:
             -d "client_id=${{ secrets.PATREON_CLIENT_ID }}" \
             -d "client_secret=${{ secrets.PATREON_CLIENT_SECRET }}")
 
-          # Extract the new access token and refresh token
+          echo "Patreon Token Response: $REFRESH_RESPONSE"
+
           NEW_ACCESS_TOKEN=$(echo "$REFRESH_RESPONSE" | jq -r '.access_token')
-          NEW_REFRESH_TOKEN=$(echo "$REFRESH_RESPONSE" | jq -r '.refresh_token')
 
-          echo "✅ New access token obtained."
+          if [[ -z "$NEW_ACCESS_TOKEN" || "$NEW_ACCESS_TOKEN" == "null" ]]; then
+            echo "❌ ERROR: Could not retrieve new Access Token!"
+            echo "Patreon API failed to return a new Access Token." > error_message.txt
+            exit 1
+          fi
 
-          # Save the new access token for the next step
+          echo "✅ New Access Token obtained."
           echo "NEW_ACCESS_TOKEN=${NEW_ACCESS_TOKEN}" >> $GITHUB_ENV
-
-          # Discard the refresh token (it will never be stored)
-          echo "⚠️ Refresh token discarded."
 
       - name: Get Patreon Supporters
         run: |
-          # Use the new access token and fetched campaign ID
           SUPPORTERS=$(curl -s -X GET "https://www.patreon.com/api/oauth2/v2/campaigns/${CAMPAIGN_ID}/members" \
             -H "Authorization: Bearer $NEW_ACCESS_TOKEN")
 
-          # Save the JSON output to docs/supporters.json
+          echo "Patreon Supporters Response: $SUPPORTERS"
+
+          if [[ -z "$SUPPORTERS" || "$SUPPORTERS" == "{}" || "$SUPPORTERS" == "[]" ]]; then
+            echo "❌ ERROR: No supporters found or API call failed!"
+            echo "Patreon API returned an empty supporter list." > error_message.txt
+            exit 1
+          fi
+
           mkdir -p docs
           echo "$SUPPORTERS" | jq '.' > docs/supporters.json
           echo "✅ Supporters list updated."
 
       - name: Commit Changes
         run: |
-          # Configure Git to commit changes
           git config --global user.name "GitHub Actions"
           git config --global user.email "actions@github.com"
-          
-          # Add the updated file
           git add docs/supporters.json
           
-          # Commit if there are any changes
           if ! git diff --quiet; then
             git commit -m "Updated Patreon supporters list"
             git push
           else
-            echo "No changes detected."
+            echo "⚠️ No changes detected."
           fi
+
+      - name: Create GitHub Issue on Failure
+        if: failure()
+        run: |
+          ERROR_MSG=$(cat error_message.txt || echo "Unknown error occurred.")
+          echo "## ⚠️ Patreon Sync Failed" > issue_body.md
+          echo "" >> issue_body.md
+          echo "**Error Message:**" >> issue_body.md
+          echo "❌ $ERROR_MSG" >> issue_body.md
+          echo "" >> issue_body.md
+          echo "**Workflow Run:** [View Logs](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> issue_body.md
+
+          gh issue create --title "⚠️ Patreon Sync Failed" --body-file issue_body.md --repo "${{ github.repository }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
